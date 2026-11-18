@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>حافظ اللينكات</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --card2: #263449;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-dark: #0284c7;
+    --danger: #f87171;
+    --ok: #4ade80;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Arabic", "Noto Naskh Arabic", Tahoma, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    padding-bottom: 90px;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--bg);
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid #1e293b;
+  }
+  h1 { margin: 0 0 10px; font-size: 20px; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  input[type="text"], input[type="search"] {
+    flex: 1; min-width: 0;
+    background: var(--card); color: var(--text);
+    border: 1px solid #334155; border-radius: 10px;
+    padding: 10px 12px; font-size: 16px; font-family: inherit;
+  }
+  input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  button {
+    font-family: inherit; font-size: 15px; cursor: pointer;
+    border: 0; border-radius: 10px; padding: 10px 14px;
+    background: var(--accent-dark); color: #fff;
+  }
+  button:active { opacity: .8; }
+  button.secondary { background: var(--card2); color: var(--text); }
+  button.icon {
+    background: var(--card2); color: var(--text);
+    padding: 8px 12px; font-size: 14px;
+  }
+  button.danger { color: var(--danger); }
+  .tools { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-top: 2px; }
+  .count { color: var(--muted); font-size: 13px; }
+  .tools .btns { display: flex; gap: 6px; }
+  .tools button { padding: 6px 10px; font-size: 13px; }
+  main { padding: 6px 14px 0; }
+  .day {
+    margin: 18px 0 8px; font-weight: 700; color: var(--accent); font-size: 17px;
+    border-bottom: 1px solid #1e293b; padding-bottom: 4px;
+  }
+  .item {
+    background: var(--card); border-radius: 14px;
+    padding: 12px; margin-bottom: 10px;
+  }
+  .time { color: var(--muted); font-size: 14px; margin-bottom: 6px; }
+  .linkrow { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .link {
+    flex: 1; min-width: 0; direction: ltr; text-align: left;
+    background: #0b1220; border-radius: 8px; padding: 8px 10px;
+    font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .link a { color: var(--accent); text-decoration: none; }
+  .desc { white-space: pre-wrap; word-break: break-word; font-size: 15px; }
+  .desc .lbl { color: var(--muted); }
+  .desc.pending { color: var(--muted); }
+  .actions { display: flex; gap: 8px; margin-top: 10px; justify-content: flex-start; }
+  .empty { text-align: center; color: var(--muted); margin-top: 60px; padding: 0 20px; }
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: #e2e8f0; color: #0f172a; padding: 10px 18px; border-radius: 22px;
+    font-size: 15px; opacity: 0; pointer-events: none; transition: opacity .25s;
+    max-width: 90%; text-align: center; z-index: 50;
+  }
+  #toast.show { opacity: 1; }
+  input[type="file"] { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🔗 حافظ اللينكات</h1>
+  <div class="row">
+    <input type="text" id="addInput" placeholder="الصق لينك هنا..." dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url">
+    <button id="addBtn" type="button">حفظ</button>
+  </div>
+  <div class="row">
+    <button id="pasteBtn" type="button" class="secondary" style="flex:1">📋 حفظ آخر شيء نسخته</button>
+  </div>
+  <div class="row">
+    <input type="search" id="searchInput" placeholder="🔍 ابحث في اللينكات...">
+  </div>
+  <div class="tools">
+    <span class="count" id="count"></span>
+    <span class="btns">
+      <button type="button" class="secondary" id="exportBtn">نسخة احتياطية</button>
+      <button type="button" class="secondary" id="importBtn">استرجاع</button>
+    </span>
+  </div>
+  <input type="file" id="importFile" accept="application/json,.json">
+</header>
+
+<main id="list"></main>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var KEY = 'links_v1';
+  var DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+  var items = [];
+  var toastTimer = null;
+
+  /* ---------- التخزين ---------- */
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      var arr = raw ? JSON.parse(raw) : [];
+      items = Array.isArray(arr) ? arr.filter(function (x) { return x && typeof x.url === 'string' && typeof x.ts === 'number'; }) : [];
+    } catch (e) {
+      items = [];
+    }
+    items.forEach(function (x) { x.pending = false; });
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(items));
+      return true;
+    } catch (e) {
+      toast('تعذر الحفظ على الجهاز (المساحة ممتلئة؟)');
+      return false;
+    }
+  }
+
+  /* ---------- أدوات عامة ---------- */
+  function toast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2400);
+  }
+
+  function clip(s, n) {
+    s = String(s || '').replace(/\s+/g, ' ').trim();
+    return s.length > n ? s.slice(0, n - 1) + '…' : s;
+  }
+
+  function two(n) { return n < 10 ? '0' + n : '' + n; }
+
+  function fmtTime(d) {
+    var h = d.getHours();
+    var m = d.getMinutes();
+    var ap = h >= 12 ? 'م' : 'ص';
+    h = h % 12;
+    if (h === 0) h = 12;
+    return h + ':' + two(m) + ' ' + ap;
+  }
+
+  function dayKey(d) {
+    return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+  }
+
+  function dayTitle(d) {
+    return DAYS[d.getDay()] + ' ' + d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear();
+  }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = text;
+    return e;
+  }
+
+  async function copyText(t) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(t);
+        return true;
+      }
+    } catch (e) { /* نكمل بالطريقة البديلة */ }
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = t;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, t.length);
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e2) {
+      return false;
+    }
+  }
+
+  /* ---------- استخراج اللينك ---------- */
+  function extractUrl(s) {
+    if (!s) return '';
+    s = String(s).trim();
+    var m = s.match(/https?:\/\/[^\s<>"'«»]+/i);
+    var u = '';
+    if (m) {
+      u = m[0];
+    } else if (/^www\.[^\s]+$/i.test(s)) {
+      u = 'https://' + s;
+    } else {
+      return '';
+    }
+    u = u.replace(/[.,;:!?،؛؟]+$/, '');
+    while (u.charAt(u.length - 1) === ')' && u.split(')').length > u.split('(').length) {
+      u = u.slice(0, -1).replace(/[.,;:!?،؛؟]+$/, '');
+    }
+    try {
+      var parsed = new URL(u);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+      return u;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /* ---------- تصنيف اللينك ---------- */
+  function classify(url) {
+    var u;
+    try { u = new URL(url); } catch (e) { return { id: 'other', label: 'رابط', host: '' }; }
+    var h = u.hostname.toLowerCase().replace(/^(www|m|mobile)\./, '');
+    var p = u.pathname.toLowerCase();
+    var q = u.search.toLowerCase();
+    function is(d) { return h === d || h.slice(-(d.length + 1)) === '.' + d; }
+    function r(id, label) { return { id: id, label: label, host: h }; }
+
+    if (is('youtube.com') || h === 'youtu.be' || is('youtube-nocookie.com')) {
+      if (p.indexOf('/shorts/') === 0) return r('youtube', 'فيديو يوتيوب قصير (Shorts)');
+      if (p === '/playlist') return r('youtube', 'قائمة تشغيل على يوتيوب');
+      if (/^\/(@|channel\/|c\/|user\/)/.test(p)) return r('youtube', 'قناة على يوتيوب');
+      return r('youtube', 'فيديو يوتيوب');
+    }
+    if (is('tiktok.com')) {
+      if (/\/video\//.test(p) || h === 'vm.tiktok.com' || h === 'vt.tiktok.com') return r('tiktok', 'فيديو تيك توك');
+      return r('tiktok', 'رابط تيك توك');
+    }
+    if (is('instagram.com') || h === 'instagr.am') {
+      if (p.indexOf('/reel') === 0) return r('instagram', 'ريل إنستجرام');
+      if (p.indexOf('/p/') === 0 || p.indexOf('/tv/') === 0) return r('instagram', 'منشور على إنستجرام');
+      if (p.indexOf('/stories/') === 0) return r('instagram', 'ستوري على إنستجرام');
+      return r('instagram', 'رابط إنستجرام');
+    }
+    if (is('facebook.com') || is('fb.com') || is('fb.watch') || is('fb.me')) {
+      if (h === 'fb.watch' || /\/(reel|watch|videos)/.test(p)) return r('facebook', 'فيديو على فيسبوك');
+      if (p.indexOf('/groups/') === 0) return r('facebook', 'منشور أو جروب على فيسبوك');
+      return r('facebook', 'رابط فيسبوك');
+    }
+    if (is('twitter.com') || h === 'x.com' || h === 't.co') {
+      if (/\/status\//.test(p)) return r('x', 'منشور على X (تويتر)');
+      return r('x', 'رابط X (تويتر)');
+    }
+    if (h === 't.me' || is('telegram.me') || is('telegram.org')) return r('telegram', 'رابط تيليجرام');
+    if (h === 'wa.me' || is('whatsapp.com')) return r('whatsapp', 'رابط واتساب');
+    if (is('snapchat.com')) return r('snapchat', 'رابط سناب شات');
+    if (is('pinterest.com') || h === 'pin.it') return r('pinterest', 'رابط بينترست');
+    if (is('reddit.com') || h === 'redd.it') return r('reddit', 'منشور على ريديت');
+    if (is('linkedin.com') || h === 'lnkd.in') return r('linkedin', 'رابط لينكدإن');
+    if (is('spotify.com') || h === 'spoti.fi') return r('spotify', 'رابط على سبوتيفاي');
+    if (is('soundcloud.com')) return r('soundcloud', 'رابط ساوند كلاود');
+    if (is('github.com')) return r('github', 'مشروع/صفحة على GitHub');
+    if (is('wikipedia.org')) return r('wikipedia', 'مقال على ويكيبيديا');
+    if (is('docs.google.com')) return r('gdocs', 'ملف على Google Docs');
+    if (is('drive.google.com')) return r('gdrive', 'ملف على Google Drive');
+    if (is('play.google.com')) return r('gplay', 'تطبيق على Google Play');
+    if (h === 'maps.app.goo.gl' || (h === 'goo.gl' && p.indexOf('/maps') === 0) || (is('google.com') && p.indexOf('/maps') === 0)) return r('maps', 'موقع على خرائط جوجل');
+    if (is('amazon.com') || is('amazon.eg') || is('amazon.sa') || is('amazon.ae') || h === 'amzn.to' || is('aliexpress.com') ||
+        is('noon.com') || is('jumia.com.eg') || is('temu.com') || is('shein.com') || is('ebay.com')) {
+      return r('shop', 'منتج/صفحة في متجر إلكتروني');
+    }
+    return r('other', 'موقع ' + h);
+  }
+
+  function buildDesc(c, meta) {
+    if (meta && meta.title) {
+      var d = c.label + ': ' + clip(meta.title, 130);
+      if (meta.author) d += ' — ' + clip(meta.author, 60);
+      if (c.id === 'other' && meta.desc) d += '\n' + clip(meta.desc, 170);
+      return d;
+    }
+    if (c.id === 'other') return 'رابط لموقع ' + (c.host || 'غير معروف') + ' (تفاصيله غير معروفة)';
+    return c.label + ' (التفاصيل غير متاحة)';
+  }
+
+  /* ---------- جلب بيانات اللينك (مجاني) ---------- */
+  async function fetchJSON(u, ms) {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, ms || 8000);
+    try {
+      var res = await fetch(u, { signal: ctrl.signal });
+      if (!res.ok) throw new Error('http ' + res.status);
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function cleanTitle(t) {
+    t = String(t || '').replace(/\s+/g, ' ').trim();
+    if (t.length < 2) return '';
+    if (/(log ?in|sign ?up|just a moment|access denied|attention required|are you a robot|تسجيل الدخول)/i.test(t)) return '';
+    if (/^(instagram|facebook|tiktok|x|twitter|youtube)$/i.test(t)) return '';
+    return t;
+  }
+
+  async function getMeta(url, c) {
+    var enc = encodeURIComponent(url);
+
+    if (c.id === 'youtube') {
+      try {
+        var yt = await fetchJSON('https://www.youtube.com/oembed?format=json&url=' + enc);
+        if (yt && yt.title) return { title: String(yt.title), author: String(yt.author_name || ''), desc: '' };
+      } catch (e1) { /* نجرب الطريقة التالية */ }
+    }
+
+    try {
+      var ml = await fetchJSON('https://api.microlink.io/?url=' + enc, 12000);
+      if (ml && ml.status === 'success' && ml.data) {
+        var t1 = cleanTitle(ml.data.title);
+        if (t1) {
+          return {
+            title: t1,
+            author: String(ml.data.author || ml.data.publisher || ''),
+            desc: String(ml.data.description || '')
+          };
+        }
+      }
+    } catch (e2) { /* نجرب الطريقة التالية */ }
+
+    try {
+      var nb = await fetchJSON('https://noembed.com/embed?url=' + enc);
+      if (nb && !nb.error) {
+        var t2 = cleanTitle(nb.title);
+        if (t2) return { title: t2, author: String(nb.author_name || ''), desc: '' };
+      }
+    } catch (e3) { /* خلاص */ }
+
+    return null;
+  }
+
+  async function analyze(item) {
+    item.pending = true;
+    render();
+    var c = classify(item.url);
+    var meta = null;
+    try { meta = await getMeta(item.url, c); } catch (e) { meta = null; }
+    if (items.indexOf(item) === -1) return; // اتمسح أثناء التحليل
+    item.pending = false;
+    item.title = meta && meta.title ? meta.title : '';
+    item.desc = buildDesc(c, meta);
+    persist();
+    render();
+  }
+
+  /* ---------- إضافة وحذف ---------- */
+  function addLink(url) {
+    url = String(url || '').trim();
+    if (!url) return false;
+    var dup = items.filter(function (x) { return x.url === url; })[0];
+    if (dup) {
+      toast('اللينك ده محفوظ قبل كده');
+      return false;
+    }
+    var now = Date.now();
+    var item = {
+      id: now.toString(36) + Math.random().toString(36).slice(2, 7),
+      ts: now,
+      url: url,
+      title: '',
+      desc: buildDesc(classify(url), null),
+      pending: false
+    };
+    items.unshift(item);
+    persist();
+    render();
+    toast('✅ تم الحفظ');
+    analyze(item);
+    return true;
+  }
+
+  function removeItem(item) {
+    if (!window.confirm('تمسح اللينك ده؟')) return;
+    items = items.filter(function (x) { return x !== item; });
+    persist();
+    render();
+  }
+
+  /* ---------- العرض ---------- */
+  function render() {
+    var list = document.getElementById('list');
+    var qEl = document.getElementById('searchInput');
+    var q = (qEl.value || '').trim().toLowerCase();
+
+    var sorted = items.slice().sort(function (a, b) { return b.ts - a.ts; });
+    var shown = sorted.filter(function (x) {
+      if (!q) return true;
+      return (x.url + ' ' + (x.desc || '') + ' ' + (x.title || '')).toLowerCase().indexOf(q) !== -1;
+    });
+
+    document.getElementById('count').textContent =
+      q ? (shown.length + ' نتيجة من ' + items.length) : (items.length + ' لينك محفوظ');
+
+    list.textContent = '';
+
+    if (shown.length === 0) {
+      list.appendChild(el('div', 'empty',
+        items.length === 0
+          ? 'لسه مفيش لينكات. من أي تطبيق اضغط "مشاركة" واختار "حافظ اللينكات"، أو الصق لينك فوق.'
+          : 'مفيش نتائج للبحث ده.'));
+      return;
+    }
+
+    var lastKey = '';
+    shown.forEach(function (item) {
+      var d = new Date(item.ts);
+      var k = dayKey(d);
+      if (k !== lastKey) {
+        lastKey = k;
+        list.appendChild(el('div', 'day', dayTitle(d)));
+      }
+
+      var card = el('div', 'item');
+      card.appendChild(el('div', 'time', '🕐 الساعة ' + fmtTime(d)));
+
+      var row = el('div', 'linkrow');
+      var linkBox = el('div', 'link');
+      var a = document.createElement('a');
+      a.href = item.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = item.url;
+      linkBox.appendChild(a);
+      var copyBtn = el('button', 'icon', '📋 نسخ');
+      copyBtn.type = 'button';
+      copyBtn.addEventListener('click', function () {
+        copyText(item.url).then(function (ok) {
+          toast(ok ? 'تم نسخ اللينك ✅' : 'تعذر النسخ');
+        });
+      });
+      row.appendChild(linkBox);
+      row.appendChild(copyBtn);
+      card.appendChild(row);
+
+      var desc = el('div', item.pending ? 'desc pending' : 'desc');
+      desc.setAttribute('dir', 'auto');
+      var lbl = el('span', 'lbl', 'الوصف: ');
+      desc.appendChild(lbl);
+      desc.appendChild(document.createTextNode(item.pending ? '⏳ جاري التحليل... ' + (item.desc || '') : (item.desc || '')));
+      card.appendChild(desc);
+
+      var actions = el('div', 'actions');
+      var re = el('button', 'icon', '🔄 إعادة التحليل');
+      re.type = 'button';
+      re.addEventListener('click', function () {
+        if (!item.pending) analyze(item);
+      });
+      var del = el('button', 'icon danger', '🗑 حذف');
+      del.type = 'button';
+      del.addEventListener('click', function () { removeItem(item); });
+      actions.appendChild(re);
+      actions.appendChild(del);
+      card.appendChild(actions);
+
+      list.appendChild(card);
+    });
+  }
+
+  /* ---------- نسخة احتياطية ---------- */
+  function exportBackup() {
+    if (items.length === 0) { toast('مفيش لينكات تتحفظ'); return; }
+    var d = new Date();
+    var name = 'links-backup-' + d.getFullYear() + two(d.getMonth() + 1) + two(d.getDate()) + '.json';
+    var blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+    var href = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = href;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(href); }, 3000);
+    toast('تم إنشاء ملف النسخة الاحتياطية');
+  }
+
+  function importBackup(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var arr = JSON.parse(String(reader.result));
+        if (!Array.isArray(arr)) throw new Error('bad');
+        var added = 0;
+        arr.forEach(function (x) {
+          if (!x || typeof x.url !== 'string' || typeof x.ts !== 'number') return;
+          var exists = items.some(function (y) { return y.url === x.url; });
+          if (exists) return;
+          items.push({
+            id: String(x.id || (x.ts.toString(36) + Math.random().toString(36).slice(2, 7))),
+            ts: x.ts,
+            url: x.url,
+            title: String(x.title || ''),
+            desc: String(x.desc || ''),
+            pending: false
+          });
+          added++;
+        });
+        persist();
+        render();
+        toast('تم استرجاع ' + added + ' لينك');
+      } catch (e) {
+        toast('الملف ده مش نسخة احتياطية صحيحة');
+      }
+    };
+    reader.onerror = function () { toast('تعذر قراءة الملف'); };
+    reader.readAsText(file);
+  }
+
+  /* ---------- استقبال المشاركة من التطبيقات ---------- */
+  function handleShare() {
+    var params;
+    try { params = new URLSearchParams(window.location.search); } catch (e) { return; }
+    var has = params.has('url') || params.has('text') || params.has('title');
+    if (!has) return;
+    var found = extractUrl(params.get('url')) || extractUrl(params.get('text')) || extractUrl(params.get('title'));
+    try { window.history.replaceState(null, '', window.location.pathname); } catch (e2) { /* مش مشكلة */ }
+    if (found) addLink(found);
+    else toast('المشاركة دي مفيهاش لينك');
+  }
+
+  /* ---------- التشغيل ---------- */
+  function init() {
+    load();
+
+    var addInput = document.getElementById('addInput');
+    var searchInput = document.getElementById('searchInput');
+    var importFile = document.getElementById('importFile');
+
+    function addFromInput() {
+      var u = extractUrl(addInput.value);
+      if (!u) { toast('ما لقيتش لينك صالح في اللي كتبته'); return; }
+      if (addLink(u)) addInput.value = '';
+    }
+
+    document.getElementById('addBtn').addEventListener('click', addFromInput);
+    addInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); addFromInput(); }
+    });
+
+    document.getElementById('pasteBtn').addEventListener('click', async function () {
+      try {
+        var t = await navigator.clipboard.readText();
+        var u = extractUrl(t);
+        if (u) addLink(u);
+        else toast('اللي نسخته مفيهوش لينك');
+      } catch (e) {
+        toast('اسمح بالوصول للحافظة، أو الصق اللينك في الخانة');
+      }
+    });
+
+    searchInput.addEventListener('input', render);
+    document.getElementById('exportBtn').addEventListener('click', exportBackup);
+    document.getElementById('importBtn').addEventListener('click', function () { importFile.click(); });
+    importFile.addEventListener('change', function () {
+      importBackup(importFile.files && importFile.files[0]);
+      importFile.value = '';
+    });
+
+    render();
+    handleShare();
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').catch(function () { /* التطبيق شغال حتى من غيره */ });
+      });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>
